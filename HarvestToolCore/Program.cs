@@ -71,6 +71,13 @@ namespace HarvestToolCore
                 return true;
             }
 
+            if (command == "lm")
+            {
+                await DoList(DateTime.Now.AddDays(-(DateTime.Now.Day-1)), DateTime.Now.Date.AddDays(1));
+                return true;
+            }
+
+
             Console.WriteLine("q to quit, h|? for help");
             return true; 
         }
@@ -179,10 +186,45 @@ namespace HarvestToolCore
                 );
 
                 UpdateShortCodes(tasks.TimeEntries);
-                foreach (var t in tasks.TimeEntries.OrderBy(u=>u.StartedTime))
+
+                var annotatedList = (from t in tasks.TimeEntries
+                        select new {TimeEntry = t, ShortCode = GetShortCode(t.Client, t.Project, t.Task)})
+                    .ToList(); 
+
+                foreach (var dayEntries in annotatedList.GroupBy(x => x.TimeEntry.SpentDate).OrderBy(x=>x.Key))
                 {
-                    var shortCode = GetShortCode(t.Client, t.Project, t.Task);
-                    Console.WriteLine($"{t.SpentDate:yy-MMM-dd ddd} {t.StartedTime}-{t.EndedTime} {t.Hours} {shortCode} {t.Notes}");
+                    Console.WriteLine();
+                    Console.WriteLine($"=== {dayEntries.Key:yyyy-MMM-dd ddd} ===");
+
+                    foreach (var annotatedEntry in dayEntries.OrderBy(u => u.TimeEntry.StartedTime))
+                    {
+
+                        var startedTime = "";
+                        if (annotatedEntry.TimeEntry.StartedTime.HasValue)
+                        {
+                            var x = annotatedEntry.TimeEntry.SpentDate.Add(annotatedEntry.TimeEntry.StartedTime.Value);
+                            startedTime = x.ToString("hhmmtt").ToLowerInvariant();
+                        }
+
+                        var endedTime = "";
+                        if (annotatedEntry.TimeEntry.EndedTime.HasValue)
+                        {
+                            var x = annotatedEntry.TimeEntry.SpentDate.Add(annotatedEntry.TimeEntry.EndedTime.Value);
+                            endedTime = x.ToString("hhmmtt").ToLowerInvariant();
+                        }
+
+                        Console.WriteLine(
+                            $"{startedTime}-{endedTime} {annotatedEntry.TimeEntry.Hours:F2} {annotatedEntry.ShortCode} {annotatedEntry.TimeEntry.Notes}");
+                    }
+                }
+
+                Console.WriteLine();
+                var annotatedByCodeList = annotatedList.GroupBy(a=>a.ShortCode).ToList();
+                foreach (var annotatedByCode in annotatedByCodeList.OrderBy(x => x.Key))
+                {
+                    var timeEntry = annotatedByCode.First().TimeEntry;
+                    var timeSpent = annotatedByCode.Sum(x => x.TimeEntry.Hours);
+                    Console.WriteLine($"{annotatedByCode.Key} {timeSpent:F2} {timeEntry.Client.Name} {timeEntry.Project.Name} {timeEntry.Task.Name}");
                 }
             }
             catch (Exception ex)
