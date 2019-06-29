@@ -82,6 +82,26 @@ namespace HarvestToolCore
             return true; 
         }
 
+        // Thoughts on Grammar
+        // s                                  restart current timer. 
+        // s=now doing this other thing       provide a message (everything after =) 
+        // s -5 =email                        start it 5 minutes ago, with message
+        // s .bok -5 =bigger text
+        // s -5 .bok =something                both of these start it 5 minutes ago with message
+
+        // k                               stop current timer
+        // k-5                             stop current timer 5 minutes ago
+        // sk.bok-30,20=quick meeting          start something 30 minutes ago, end in 20 minutes, quick meeting
+        // sk.bok 8:20am-3:10pm =stuff         start and stop a timer from 8:20 to 3:10pm with a message
+        // sk.bok 820-310 =stuff        
+
+        // =some text                      update last timer text
+        // =+additional text               add more text to last timer text
+        
+        // pk-5.bok=phone call     Parallel (ie, don't edit other things) start 5 minutes ago stop now, phone call
+
+
+
         private void DoHelp()
         {
             Console.WriteLine("l|ld       list entries (for today)");
@@ -227,6 +247,10 @@ namespace HarvestToolCore
                     var timeSpent = annotatedByCode.Sum(x => x.TimeEntry.Hours);
                     Console.WriteLine($"{annotatedByCode.Key} {timeSpent:F2} {timeEntry.Client.Name} {timeEntry.Project.Name} {timeEntry.Task.Name}");
                 }
+
+                Console.WriteLine();
+                var total = annotatedList.Sum(a => a.TimeEntry.Hours);
+                Console.WriteLine($"TOTAL: {total:F2}");
             }
             catch (Exception ex)
             {
