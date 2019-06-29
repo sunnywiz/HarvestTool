@@ -179,15 +179,16 @@ namespace HarvestToolCore
                 // https://github.com/zVolodymyr/Harvest.Api
 
 
-                var tasks = await client.GetTimeEntriesAsync(
-                    fromDate: start,
-                    toDate: end,
-                    userId: me.Id
-                );
+                var timeEntries = (await GetManyTimeEntries(
+                    fromDate: start, 
+                    toDate: end, 
+                    accountId: client.DefaultAccountId, 
+                    userId: me.Id))
+                    .ToList();
 
-                UpdateShortCodes(tasks.TimeEntries);
+                UpdateShortCodes(timeEntries);
 
-                var annotatedList = (from t in tasks.TimeEntries
+                var annotatedList = (from t in timeEntries
                         select new {TimeEntry = t, ShortCode = GetShortCode(t.Client, t.Project, t.Task)})
                     .ToList(); 
 
@@ -231,6 +232,36 @@ namespace HarvestToolCore
             {
                 Console.Error.WriteLine(ex.Message);
             }
+        }
+
+        private async Task<IEnumerable<TimeEntry>> GetManyTimeEntries(long? userId = null, long? clientId = null, long? projectId = null, bool? isBilled = null, DateTime? updatedSince = null, DateTime? fromDate = null, DateTime? toDate = null, int? perPage = null, long? accountId = null)
+        {
+            // We have an API throttle that blocks accounts emitting more than 100 requests per 15 seconds. 
+            var waitTime = 10000 / 100; 
+
+            List<TimeEntry> manyTimeEntries = new List<TimeEntry>();
+            int? page = 1;
+            do
+            {
+                var timeEntriesResponse = await client.GetTimeEntriesAsync(
+                    // these are listed out so that any changes in positions .. don't matter.
+                    accountId: accountId,
+                    userId: userId,
+                    clientId: clientId,
+                    projectId: projectId,
+                    isBilled: isBilled,
+                    updatedSince: updatedSince,
+                    fromDate: fromDate,
+                    toDate: toDate,
+                    perPage: perPage,
+                    page: page
+                );
+                manyTimeEntries.AddRange(timeEntriesResponse.TimeEntries);
+                page = timeEntriesResponse.NextPage;
+                if (page != null) await Task.Delay(waitTime);
+            } while (page != null);
+
+            return manyTimeEntries;
         }
 
         private void UpdateShortCodes(IEnumerable<TimeEntry> entries)
