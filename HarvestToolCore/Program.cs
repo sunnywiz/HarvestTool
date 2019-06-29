@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Dynamic;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Threading.Tasks;
 using Harvest.Api;
 using HarvestToolCore;
@@ -11,6 +13,25 @@ using Task = System.Threading.Tasks.Task;
 
 namespace HarvestToolCore
 {
+    public class AnnotatedTimeList
+    {
+        public TimeEntry TimeEntry { get; set; }
+        public string ShortCode { get; set; }
+
+        public override bool Equals(object value)
+        {
+            var type = value as AnnotatedTimeList;
+            return (type != null) && EqualityComparer<TimeEntry>.Default.Equals(type.TimeEntry, TimeEntry) && EqualityComparer<string>.Default.Equals(type.ShortCode, ShortCode);
+        }
+
+        public override int GetHashCode()
+        {
+            int num = 0x7a2f0b42;
+            num = (-1521134295 * num) + EqualityComparer<TimeEntry>.Default.GetHashCode(TimeEntry);
+            return (-1521134295 * num) + EqualityComparer<string>.Default.GetHashCode(ShortCode);
+        }
+    }
+
     class Program
     {
         // ReSharper disable once InconsistentNaming
@@ -77,9 +98,128 @@ namespace HarvestToolCore
                 return true;
             }
 
+            if (command == "gw")
+            {
+                // experimental
+                var daysAgo = (int) DateTime.Now.DayOfWeek;  // Sunday = 0
+                // if its Sunday 0, i want to go back 6.
+                // if its Monday 1, i want to go back 0
+                daysAgo = (daysAgo == 0) ? 6 : (daysAgo - 1);
+                await DoGraph(DateTime.Now.AddDays(-daysAgo), DateTime.Now.Date.AddDays(1));
+                return true;
+            }
+
 
             Console.WriteLine("q to quit, h|? for help");
             return true; 
+        }
+
+        private async Task DoGraph(DateTime startDate, DateTime endDate)
+        {
+            var timeEntries = (await GetManyTimeEntries(
+                    fromDate: startDate,
+                    toDate: endDate,
+                    accountId: client.DefaultAccountId,
+                    userId: me.Id))
+                .ToList();
+
+            UpdateShortCodes(timeEntries);
+
+            var annotatedList = (from t in timeEntries
+                    select new AnnotatedTimeList {TimeEntry = t, ShortCode = GetShortCode(t.Client, t.Project, t.Task)})
+                .ToList();
+
+            // most days are .. within 12 hours. 
+            // So if we have 2 rows per hour, that's 24 hours. 
+
+            var g = new Griddle<DateTime, int, List<string>>();
+            var g2 = new Griddle<DateTime, int, string>(); 
+
+            var colSize = new Dictionary<DateTime, int>();
+            var colHeaders = new Dictionary<DateTime, string>();
+            var rowHeaders = new Dictionary<int, string>(); 
+
+            foreach (var t in annotatedList.OrderBy(x=>x.TimeEntry.SpentDate).ThenBy(x=>x.TimeEntry.StartedTime))
+            {
+                var date = t.TimeEntry.SpentDate;
+                if (t.TimeEntry.StartedTime.HasValue && t.TimeEntry.EndedTime.HasValue)
+                {
+                    var st = (int) Math.Round(t.TimeEntry.StartedTime.Value.TotalHours * 2, 0); // 0..47
+                    var et = (int) Math.Round(t.TimeEntry.EndedTime.Value.TotalHours * 2, 0); // 0..47
+                    for (int h = st; h <= et; h++)
+                    {
+                        g.Update(date, h, (x) =>
+                        {
+                            if (x == null) x = new List<string>();
+                            x.Add(t.ShortCode);
+                            return x;
+                        });
+                    }
+                }
+            }
+
+            foreach (var d in g.Keys1.OrderBy(y => y))
+            {
+                colHeaders[d] = d.ToString("dd ddd");
+                var biggest = colHeaders[d].Length; 
+                foreach (var h in g.Keys2.OrderBy(x => x))
+                {
+                    var l = g.Get(d, h);
+                    if (l != null)
+                    {
+                        var joined = String.Join(" ", l);
+                        g2.Set(d,h,joined);
+                        if (joined.Length > biggest) biggest = joined.Length;
+                    }
+                    else
+                    {
+                        g2.Set(d,h,"");
+                    }
+                }
+                colSize[d] = biggest; 
+            }
+
+            foreach (var h in g.Keys2.OrderBy(x => x))
+            {
+                if (h % 2 == 0)
+                {
+                    rowHeaders[h] = (h / 2).ToString("00");
+                }
+                else
+                {
+                    rowHeaders[h] = "  "; 
+                }
+            }
+
+            // column Headers
+            Console.Write("  ");
+            foreach (var d in g.Keys1.OrderBy(x => x))
+            {
+                Console.Write("|");
+                Console.Write(colHeaders[d].PadRight(colSize[d]));
+            }
+            Console.WriteLine();
+            Console.Write("--");
+            foreach (var d in g.Keys1.OrderBy(x => x))
+            {
+                Console.Write("+");
+                Console.Write("-".PadRight(colSize[d],'-'));
+            }
+            Console.WriteLine();
+            foreach (var h in g.Keys2.OrderBy(x => x))
+            {
+                Console.Write(rowHeaders[h]);
+                foreach (var d in g.Keys1.OrderBy(x => x))
+                {
+                    Console.Write("|");
+                    var x = g2.Get(d, h) ?? "";
+                    Console.Write(x.PadRight(colSize[d]));
+                }
+
+                Console.WriteLine(); 
+            }
+
+            ConsoleWriteLegend(annotatedList);
         }
 
         // Thoughts on Grammar
@@ -128,6 +268,7 @@ namespace HarvestToolCore
         {
             Console.WriteLine("l|ld       list entries (for today)");
             Console.WriteLine("lw         list entries (for week, Mon-Sun)");
+            Console.WriteLine("lm         list entries (for Month, 1st-now) (long)");
             Console.WriteLine("?|h        this help");
             Console.WriteLine("q          quit");
         }
@@ -231,7 +372,7 @@ namespace HarvestToolCore
                 UpdateShortCodes(timeEntries);
 
                 var annotatedList = (from t in timeEntries
-                        select new {TimeEntry = t, ShortCode = GetShortCode(t.Client, t.Project, t.Task)})
+                        select new AnnotatedTimeList {TimeEntry = t, ShortCode = GetShortCode(t.Client, t.Project, t.Task)})
                     .ToList(); 
 
                 foreach (var dayEntries in annotatedList.GroupBy(x => x.TimeEntry.SpentDate).OrderBy(x=>x.Key))
@@ -261,23 +402,29 @@ namespace HarvestToolCore
                     }
                 }
 
-                Console.WriteLine();
-                var annotatedByCodeList = annotatedList.GroupBy(a=>a.ShortCode).ToList();
-                foreach (var annotatedByCode in annotatedByCodeList.OrderBy(x => x.Key))
-                {
-                    var timeEntry = annotatedByCode.First().TimeEntry;
-                    var timeSpent = annotatedByCode.Sum(x => x.TimeEntry.Hours);
-                    Console.WriteLine($"{annotatedByCode.Key} {timeSpent:F2} {timeEntry.Client.Name} {timeEntry.Project.Name} {timeEntry.Task.Name}");
-                }
-
-                Console.WriteLine();
-                var total = annotatedList.Sum(a => a.TimeEntry.Hours);
-                Console.WriteLine($"TOTAL: {total:F2}");
+                ConsoleWriteLegend(annotatedList);
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine(ex.Message);
             }
+        }
+
+        private static void ConsoleWriteLegend(List<AnnotatedTimeList> annotatedList)
+        {
+            Console.WriteLine();
+            var annotatedByCodeList = annotatedList.GroupBy(a => a.ShortCode).ToList();
+            foreach (var annotatedByCode in annotatedByCodeList.OrderBy(x => x.Key))
+            {
+                var timeEntry = annotatedByCode.First().TimeEntry;
+                var timeSpent = annotatedByCode.Sum(x => x.TimeEntry.Hours);
+                Console.WriteLine(
+                    $"{annotatedByCode.Key} {timeSpent:F2} {timeEntry.Client.Name} {timeEntry.Project.Name} {timeEntry.Task.Name}");
+            }
+
+            Console.WriteLine();
+            var total = annotatedList.Sum(a => a.TimeEntry.Hours);
+            Console.WriteLine($"TOTAL: {total:F2}");
         }
 
         private async Task<IEnumerable<TimeEntry>> GetManyTimeEntries(long? userId = null, long? clientId = null, long? projectId = null, bool? isBilled = null, DateTime? updatedSince = null, DateTime? fromDate = null, DateTime? toDate = null, int? perPage = null, long? accountId = null)
