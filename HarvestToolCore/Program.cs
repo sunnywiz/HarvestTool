@@ -84,23 +84,45 @@ namespace HarvestToolCore
 
         // Thoughts on Grammar
         // s                                  restart current timer. 
-        // s=now doing this other thing       provide a message (everything after =) 
-        // s -5 =email                        start it 5 minutes ago, with message
-        // s .bok -5 =bigger text
-        // s -5 .bok =something                both of these start it 5 minutes ago with message
+        // s now doing this other thing       provide a message (everything after =) 
+        // s -5 email                        start it 5 minutes ago, with message
+        // s .bok -5 bigger text
+        // s -5 .bok something                both of these start it 5 minutes ago with message
 
         // k                               stop current timer
-        // k-5                             stop current timer 5 minutes ago
-        // sk.bok-30,20=quick meeting          start something 30 minutes ago, end in 20 minutes, quick meeting
-        // sk.bok 8:20am-3:10pm =stuff         start and stop a timer from 8:20 to 3:10pm with a message
-        // sk.bok 820-310 =stuff        
+        // k -5 hey                             stop current timer 5 minutes ago and change text to hey
+        // sk .bok -30,20 quick meeting          start something 30 minutes ago, end in 20 minutes, quick meeting
+        // sk .bok 8:20am,3:10pm stuff         start and stop a timer from 8:20 to 3:10pm with a message
 
-        // =some text                      update last timer text
-        // =+additional text               add more text to last timer text
+        // c some text                      update last timer text
+        // c +additional text               add more text to last timer text
+        // c -5                            change it to start at -5 minutes ago
+        // c 2:30                          change it to start at 2:30
+        // c ,3:10                         change it to end at 3:10    (the : makes it an absolute time)
+        // s internal/misc/dev             start timer for internal/misc/dev
+
         
-        // pk-5.bok=phone call     Parallel (ie, don't edit other things) start 5 minutes ago stop now, phone call
+        // pk -5 .bok phone call     Parallel start (ie, don't edit other things) start 5 minutes ago stop now, phone call
 
+        // Analysis: 
+        
+        // First word is command -- c, s, k, sk, p, pk
+        
+        // additional args are parsed: 
+        //    IS IT TIME? 
+        //      ,E             == "ending time spec" 
+        //      S,E            == starting + ending time spec
+        //      -1 -2 -5 -10   == "time relative" to now in minutes
+        //      -1h            == relative to now in hours
+        //      6              == relative to anchor (if E, then anchor = start) 
+        //      8:20  12:30    == "absolute".  The : gives it away. AM/PM is guessed
+        //                        if not specified by whichever is closer to now
 
+        //    IS IT A CLIENT/PROJECT/TASK       
+        //      .xxx           == shortcodes start with a dot
+        //      x/y/z          == client/project/task have two slashes.  use .contains() to narrow
+
+        //    If its not the above, then its part of the message. 
 
         private void DoHelp()
         {
